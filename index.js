@@ -4,7 +4,7 @@ const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 3000;
 
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // middleware
 app.use(express.json());
@@ -74,24 +74,35 @@ async function run() {
     });
 
     // assets related apis
-   app.post("/asset", async (req, res) => {
-  const asset = req.body;
+    app.post("/asset", async (req, res) => {
+      const asset = req.body;
 
-  const assetAutoData = {
-    productName: asset.productName,
-    productImage: asset.productImage,
-    productType: asset.productType,
-    productQuantity: Number(asset.productQuantity),
-    availableQuantity: Number(asset.productQuantity),
-    hrEmail: asset.hrEmail,
-    companyName: asset.companyName || "Unknown",
-    dateAdded: new Date(),
-  };
+      const assetAutoData = {
+        productName: asset.productName,
+        productImage: asset.productImage,
+        productType: asset.productType,
+        productQuantity: Number(asset.productQuantity),
+        availableQuantity: Number(asset.productQuantity),
+        hrEmail: asset.hrEmail,
+        companyName: asset.companyName || "Unknown",
+        dateAdded: new Date(),
+      };
+      const result = await assetCollection.insertOne(assetAutoData);
+      res.send({ success: true, insertedId: result.insertedId });
+    });
 
-  const result = await assetCollection.insertOne(assetAutoData);
-  res.send({ success: true, insertedId: result.insertedId });
-});
+    app.get("/asset", async (req, res) => {
+      const result = await assetCollection.find().toArray();
+      res.send(result);
+    });
 
+    app.delete("/asset/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+
+      const result = await assetCollection.deleteOne(query);
+      res.send(result);
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
