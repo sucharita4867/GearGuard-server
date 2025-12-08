@@ -31,6 +31,7 @@ async function run() {
     // collections
     const db = client.db("Gear_Guard_db");
     const userCollection = db.collection("users");
+    const assetCollection = db.collection("assets");
     //     user related apis
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -59,6 +60,38 @@ async function run() {
       const result = await userCollection.insertOne(user);
       res.send({ inserted: true, result });
     });
+
+    app.get("/users/role/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({ email });
+      res.send({ role: user?.role || "guest" });
+    });
+
+    app.get("/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const result = await userCollection.findOne({ email });
+      res.send(result || {});
+    });
+
+    // assets related apis
+   app.post("/asset", async (req, res) => {
+  const asset = req.body;
+
+  const assetAutoData = {
+    productName: asset.productName,
+    productImage: asset.productImage,
+    productType: asset.productType,
+    productQuantity: Number(asset.productQuantity),
+    availableQuantity: Number(asset.productQuantity),
+    hrEmail: asset.hrEmail,
+    companyName: asset.companyName || "Unknown",
+    dateAdded: new Date(),
+  };
+
+  const result = await assetCollection.insertOne(assetAutoData);
+  res.send({ success: true, insertedId: result.insertedId });
+});
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
