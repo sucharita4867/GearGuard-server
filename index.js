@@ -33,6 +33,9 @@ async function run() {
     const userCollection = db.collection("users");
     const assetCollection = db.collection("assets");
     const requestsCollection = db.collection("requests");
+    const assignedAssetsCollection = db.collection("assignedAssets");
+    const employeeAffiliationsCollections = db.collection("affiliation");
+
     //     user related apis
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -115,8 +118,131 @@ async function run() {
       requestData.requestDate = new Date();
       requestData.requestStatus = "pending";
 
+      const alreadyRequested = await requestsCollection.findOne({
+        requesterEmail: requestData.requesterEmail,
+        assetId: requestData.assetId,
+      });
+
+      if (alreadyRequested) {
+        return res.send({
+          success: false,
+          message: "You already requested this asset.",
+        });
+      }
+
       const result = await requestsCollection.insertOne(requestData);
+
+      return res.send({
+        success: true,
+        message: "Request submitted successfully",
+        insertedId: result.insertedId,
+      });
+    });
+
+    app.get("/request", async (req, res) => {
+      const hrEmail = req.query.hrEmail;
+      const result = await requestsCollection.find({ hrEmail }).toArray();
       res.send(result);
+    });
+
+    // employeeAffiliations Collections:
+    // {
+    //   _id: ObjectId,
+    //   employeeEmail: String,
+    //   employeeName: String,
+    //   hrEmail: String,
+    //   companyName: String,
+    //
+    //   affiliationDate: Date,
+    //   status: "active" | "inactive"
+    // }
+
+    app.patch("/request/approve/:id", async (req, res) => {
+      const hrInformation = req.body;
+      const id = req.params.id;
+
+      const request = await requestsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      const updated = await requestsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            requestStatus: "approved",
+            approvalDate: new Date(),
+            processedBy: request.hrEmail,
+          },
+        }
+      );
+
+      await assetCollection.updateOne(
+        { _id: new ObjectId(request.assetId) },
+        { $inc: { availableQuantity: -1 } }
+      );
+
+      const alreadyAssigned = await assignedAssetsCollection.findOne({
+        assetId: request.assetId,
+      });
+
+      if (!alreadyAssigned) {
+        await assignedAssetsCollection.insertOne({
+          assetId: request.assetId,
+          assetName: request.assetName,
+          assetImage: request.assetImage,
+          assetType: request.assetType,
+          employeeEmail: request.requesterEmail,
+          employeeName: request.requesterName,
+          hrEmail: request.hrEmail,
+          companyName: request.companyName,
+          assignmentDate: new Date(),
+          returnDate: null,
+          status: "assigned",
+        });
+      }
+
+      // Affiliations
+      const alreadyAffiliated = await employeeAffiliationsCollections.findOne({
+        employeeEmail: request.requesterEmail,
+        hrEmail: request.hrEmail,
+      });
+      if (!alreadyAffiliated) {
+        await employeeAffiliationsCollections.insertOne({
+          employeeEmail: request.requesterEmail,
+          employeeName: request.requesterName,
+          hrEmail: request.hrEmail,
+          companyName: request.companyName,
+          // companyLogo: request.hrInformation,
+          companyLogo: hrInformation.companyLogo,
+          affiliationDate: new Date(),
+          status: "active",
+        });
+        console.log(alreadyAffiliated);
+      }
+      res.send({
+        modifiedCount: updated.modifiedCount,
+        message: "Request Approved Successfully",
+      });
+    });
+
+    // _id: ObjectId,
+
+    app.patch("/request/reject/:id", async (req, res) => {
+      const id = req.params.id;
+      const request = await requestsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      const updated = await requestsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            requestStatus: "rejected",
+            approvalDate: new Date(),
+            processedBy: request.hrEmail,
+          },
+        }
+      );
+      res.send(updated);
     });
 
     // Send a ping to confirm a successful connection
