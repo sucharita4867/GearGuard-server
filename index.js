@@ -145,18 +145,6 @@ async function run() {
       res.send(result);
     });
 
-    // employeeAffiliations Collections:
-    // {
-    //   _id: ObjectId,
-    //   employeeEmail: String,
-    //   employeeName: String,
-    //   hrEmail: String,
-    //   companyName: String,
-    //
-    //   affiliationDate: Date,
-    //   status: "active" | "inactive"
-    // }
-
     app.patch("/request/approve/:id", async (req, res) => {
       const hrInformation = req.body;
       const id = req.params.id;
@@ -196,6 +184,7 @@ async function run() {
           hrEmail: request.hrEmail,
           companyName: request.companyName,
           assignmentDate: new Date(),
+          requestDate: request.requestDate,
           returnDate: null,
           status: "assigned",
         });
@@ -225,8 +214,6 @@ async function run() {
       });
     });
 
-    // _id: ObjectId,
-
     app.patch("/request/reject/:id", async (req, res) => {
       const id = req.params.id;
       const request = await requestsCollection.findOne({
@@ -243,6 +230,41 @@ async function run() {
         }
       );
       res.send(updated);
+    });
+
+    // employee assets apis
+    app.get("/myAssets", async (req, res) => {
+      const result = await assignedAssetsCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.patch("/asset/return/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const assignedAsset = await assignedAssetsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!assignedAsset) {
+        return res.send({ success: false, message: "Asset not found" });
+      }
+
+      await assignedAssetsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status: "returned",
+            returnDate: new Date(),
+          },
+        }
+      );
+
+      await assetCollection.updateOne(
+        { _id: new ObjectId(assignedAsset.assetId) },
+        { $inc: { availableQuantity: 1 } }
+      );
+
+      res.send({ success: true, message: "Asset returned successfully" });
     });
 
     // Send a ping to confirm a successful connection
