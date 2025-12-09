@@ -32,6 +32,7 @@ async function run() {
     const db = client.db("Gear_Guard_db");
     const userCollection = db.collection("users");
     const assetCollection = db.collection("assets");
+    const requestsCollection = db.collection("requests");
     //     user related apis
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -92,7 +93,10 @@ async function run() {
     });
 
     app.get("/asset", async (req, res) => {
-      const result = await assetCollection.find().toArray();
+      const result = await assetCollection
+        .find()
+        .sort({ dateAdded: -1 })
+        .toArray();
       res.send(result);
     });
 
@@ -101,6 +105,17 @@ async function run() {
       const query = { _id: new ObjectId(id) };
 
       const result = await assetCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    // employees requests  apis
+
+    app.post("/request", async (req, res) => {
+      const requestData = req.body;
+      requestData.requestDate = new Date();
+      requestData.requestStatus = "pending";
+
+      const result = await requestsCollection.insertOne(requestData);
       res.send(result);
     });
 
