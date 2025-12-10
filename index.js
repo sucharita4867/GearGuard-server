@@ -141,7 +141,10 @@ async function run() {
 
     app.get("/request", async (req, res) => {
       const hrEmail = req.query.hrEmail;
-      const result = await requestsCollection.find({ hrEmail }).toArray();
+      const result = await requestsCollection
+        .find({ hrEmail })
+        .sort({ requestDate: -1 })
+        .toArray();
       res.send(result);
     });
 
@@ -169,26 +172,26 @@ async function run() {
         { $inc: { availableQuantity: -1 } }
       );
 
-      const alreadyAssigned = await assignedAssetsCollection.findOne({
-        assetId: request.assetId,
-      });
+      // const alreadyAssigned = await assignedAssetsCollection.findOne({
+      //   assetId: request.requesterEmail,
+      // });
 
-      if (!alreadyAssigned) {
-        await assignedAssetsCollection.insertOne({
-          assetId: request.assetId,
-          assetName: request.assetName,
-          assetImage: request.assetImage,
-          assetType: request.assetType,
-          employeeEmail: request.requesterEmail,
-          employeeName: request.requesterName,
-          hrEmail: request.hrEmail,
-          companyName: request.companyName,
-          assignmentDate: new Date(),
-          requestDate: request.requestDate,
-          returnDate: null,
-          status: "assigned",
-        });
-      }
+      // if (!alreadyAssigned) {
+      await assignedAssetsCollection.insertOne({
+        assetId: request.assetId,
+        assetName: request.assetName,
+        assetImage: request.assetImage,
+        assetType: request.assetType,
+        employeeEmail: request.requesterEmail,
+        employeeName: request.requesterName,
+        hrEmail: request.hrEmail,
+        companyName: request.companyName,
+        assignmentDate: new Date(),
+        requestDate: request.requestDate,
+        returnDate: null,
+        status: "assigned",
+      });
+      // }
 
       // Affiliations
       const alreadyAffiliated = await employeeAffiliationsCollections.findOne({
@@ -234,7 +237,15 @@ async function run() {
 
     // employee assets apis
     app.get("/myAssets", async (req, res) => {
-      const result = await assignedAssetsCollection.find().toArray();
+      const email = req.query.email;
+
+      if (!email) {
+        return res.send([]);
+      }
+      const result = await assignedAssetsCollection
+        .find({ employeeEmail: email })
+        .sort({ assignmentDate: -1 })
+        .toArray();
       res.send(result);
     });
 
@@ -265,6 +276,95 @@ async function run() {
       );
 
       res.send({ success: true, message: "Asset returned successfully" });
+    });
+
+    app.get("/employees", async (req, res) => {
+      const hrEmail = req.query.hrEmail;
+
+      // 1. Affiliation data → সব employee list
+      const employees = await employeeAffiliationsCollections
+        .find({ hrEmail, status: "active" })
+        .sort({ affiliationDate: -1 })
+        .toArray();
+
+      // 2. Loop each employee to attach photo + assets count
+      const finalData = await Promise.all(
+        employees.map(async (emp) => {
+          const user = await userCollection.findOne({
+            email: emp.employeeEmail,
+          });
+          // console.log(user);
+
+          const assetsCount = await assignedAssetsCollection.countDocuments({
+            employeeEmail: emp.employeeEmail,
+          });
+
+          return {
+            _id: emp._id,
+            name: emp.employeeName || user?.displayName,
+            email: emp.employeeEmail,
+            photo: user?.image || "https://i.ibb.co/5xVqcD1/user.png",
+            joinDate: emp.affiliationDate,
+            assetsCount,
+            companyName: emp.companyName,
+          };
+        })
+      );
+
+      res.send(finalData);
+    });
+
+    app.get("/employees/stats", async (req, res) => {
+      const hrEmail = req.query.hrEmail;
+
+      const hrData = await userCollection.findOne({
+        email: hrEmail,
+      });
+
+      const totalEmployees =
+        await employeeAffiliationsCollections.countDocuments({
+          hrEmail,
+          status: "active",
+        });
+      // console.log(hrData, totalEmployees, "total console.log");
+      res.send({
+        used: totalEmployees,
+        limit: hrData?.packageLimit || 0,
+      });
+    });
+
+    app.patch("/employees/remove/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const employee = await employeeAffiliationsCollections.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!employee) {
+        return res.send({ success: false, message: "Employee not found" });
+      }
+
+      await employeeAffiliationsCollections.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: "removed", removedDate: new Date() } }
+      );
+
+      await assignedAssetsCollection.updateMany(
+        { employeeEmail: employee.employeeEmail, status: "assigned" },
+        {
+          $set: {
+            status: "returned",
+            returnDate: new Date(),
+          },
+        }
+      );
+
+      await assetCollection.updateMany(
+        { hrEmail: employee.hrEmail },
+        { $inc: { availableQuantity: 1 } }
+      );
+
+      res.send({ success: true, message: "Employee removed successfully" });
     });
 
     // Send a ping to confirm a successful connection
