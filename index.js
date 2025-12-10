@@ -60,7 +60,6 @@ async function run() {
         user.position = "not assigned";
       }
 
-      // Save to DB
       const result = await userCollection.insertOne(user);
       res.send({ inserted: true, result });
     });
@@ -281,13 +280,11 @@ async function run() {
     app.get("/employees", async (req, res) => {
       const hrEmail = req.query.hrEmail;
 
-      // 1. Affiliation data → সব employee list
       const employees = await employeeAffiliationsCollections
         .find({ hrEmail, status: "active" })
         .sort({ affiliationDate: -1 })
         .toArray();
 
-      // 2. Loop each employee to attach photo + assets count
       const finalData = await Promise.all(
         employees.map(async (emp) => {
           const user = await userCollection.findOne({
@@ -365,6 +362,77 @@ async function run() {
       );
 
       res.send({ success: true, message: "Employee removed successfully" });
+    });
+
+    app.get("/myTeam/companies", async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({
+          success: false,
+          message: "Employee email is required",
+        });
+      }
+
+      const affiliations = await employeeAffiliationsCollections
+        .find({ employeeEmail: email, status: "active" })
+        .toArray();
+
+      if (!affiliations.length) {
+        return res.send([]);
+      }
+
+      const companyNames = [...new Set(affiliations.map((a) => a.companyName))];
+
+      res.send(companyNames);
+    });
+
+    app.get("/myTeam/list", async (req, res) => {
+      const email = req.query.email;
+
+      const loggedUser = await userCollection.findOne({ email });
+      // console.log(loggedUser)
+      if (!loggedUser) {
+        return res.send([]);
+      }
+
+      const affiliations = await employeeAffiliationsCollections
+        .find({ employeeEmail: email, status: "active" })
+        .toArray();
+
+      if (affiliations.length === 0) {
+        return res.send([]);
+      }
+
+      const companies = affiliations.map((a) => a.companyName);
+
+      const teamMembers = await employeeAffiliationsCollections
+        .find({
+          companyName: { $in: companies },
+          status: "active",
+        })
+        .toArray();
+
+      const finalTeamData = await Promise.all(
+        teamMembers.map(async (emp) => {
+          const userData = await userCollection.findOne({
+            email: emp.employeeEmail,
+          });
+
+          return {
+            _id: emp._id,
+            name: userData?.name || emp.employeeName,
+            email: emp.employeeEmail,
+            photo: userData?.image || "https://i.ibb.co/5xVqcD1/user.png",
+            position: userData?.position || "Employee",
+            dob: userData?.dob || null,
+            joinDate: emp.affiliationDate,
+            companyName: emp.companyName,
+          };
+        })
+      );
+
+      res.send(finalTeamData);
     });
 
     // Send a ping to confirm a successful connection
