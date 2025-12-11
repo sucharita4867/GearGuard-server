@@ -100,10 +100,18 @@ async function run() {
     });
 
     app.get("/asset", async (req, res) => {
+      const hrEmail = req.query.hrEmail;
+
+      let query = {};
+      if (hrEmail) {
+        query = { hrEmail };
+      }
+
       const result = await assetCollection
-        .find()
+        .find(query)
         .sort({ dateAdded: -1 })
         .toArray();
+
       res.send(result);
     });
 
@@ -239,17 +247,20 @@ async function run() {
       res.send(updated);
     });
 
-    // employee assets apis
-    app.get("/myAssets", async (req, res) => {
+    // employee assets apis--------------------------------------------
+    app.get("/my-asset", async (req, res) => {
       const email = req.query.email;
 
-      if (!email) {
-        return res.send([]);
+      let query = {};
+      if (email) {
+        query = { employeeEmail: email };
       }
+
       const result = await assignedAssetsCollection
-        .find({ employeeEmail: email })
+        .find(query)
         .sort({ assignmentDate: -1 })
         .toArray();
+
       res.send(result);
     });
 
@@ -558,6 +569,56 @@ async function run() {
 
       res.send({ success: true });
     });
+    // user update apis
+
+    // app.patch("/user/update/:email", async (req, res) => {
+    //   try {
+    //     const email = req.params.email;
+    //     const updateData = req.body;
+
+    //     // Remove empty or null fields
+    //     for (const key in updateData) {
+    //       if (
+    //         updateData[key] === "" ||
+    //         updateData[key] === null ||
+    //         updateData[key] === undefined
+    //       ) {
+    //         delete updateData[key];
+    //       }
+    //     }
+
+    //     // ❌ Email is read-only — never allow updating
+    //     if ("email" in updateData) {
+    //       delete updateData.email;
+    //     }
+
+    //     // Update the user
+    //     const result = await userCollection.updateOne(
+    //       { email: email },
+    //       { $set: updateData }
+    //     );
+
+    //     // If no user found
+    //     if (result.matchedCount === 0) {
+    //       return res.send({
+    //         success: false,
+    //         message: "User not found",
+    //       });
+    //     }
+
+    //     res.send({
+    //       success: true,
+    //       message: "Profile updated successfully",
+    //       result,
+    //     });
+    //   } catch (error) {
+    //     console.error("Profile update error:", error);
+    //     res.status(500).send({
+    //       success: false,
+    //       message: "Failed to update profile",
+    //     });
+    //   }
+    // });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
