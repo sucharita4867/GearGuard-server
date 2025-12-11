@@ -101,18 +101,32 @@ async function run() {
 
     app.get("/asset", async (req, res) => {
       const hrEmail = req.query.hrEmail;
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+
+      const skip = (page - 1) * limit;
 
       let query = {};
       if (hrEmail) {
         query = { hrEmail };
       }
 
-      const result = await assetCollection
+      const total = await assetCollection.countDocuments(query);
+
+      const assets = await assetCollection
         .find(query)
+        .skip(skip)
+        .limit(limit)
         .sort({ dateAdded: -1 })
         .toArray();
 
-      res.send(result);
+      res.send({
+        data: assets,
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      });
     });
 
     app.delete("/asset/:id", async (req, res) => {
@@ -542,33 +556,41 @@ async function run() {
       if (session.payment_status !== "paid") {
         return res.send({ success: false });
       }
-      // console.log(session);
+
+      const user = await userCollection.findOne({
+        email: session.customer_email,
+      });
+
+      const oldLimit = user.packageLimit || 0;
+      const newLimit = Number(session.metadata.employeeLimit);
+
+      const updatedLimit = oldLimit + newLimit;
+
       // Save Payment
-      const paymentData = {
+      await paymentsCollection.insertOne({
         hrEmail: session.customer_email,
         packageName: session.metadata.packageName,
-        employeeLimit: Number(session.metadata.employeeLimit),
+        employeeLimit: newLimit,
         amount: session.amount_total / 100,
         transactionId: session.payment_intent,
         paymentDate: new Date(),
         status: "completed",
-      };
+      });
 
-      await paymentsCollection.insertOne(paymentData);
-
-      //  Update User Package Limit
+      // Update User
       await userCollection.updateOne(
         { email: session.customer_email },
         {
           $set: {
             subscription: session.metadata.packageName,
-            packageLimit: Number(session.metadata.employeeLimit),
+            packageLimit: updatedLimit,
           },
         }
       );
 
       res.send({ success: true });
     });
+
     // user update apis
 
     // app.patch("/user/update/:email", async (req, res) => {
