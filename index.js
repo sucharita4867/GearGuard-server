@@ -4,6 +4,8 @@ const cors = require("cors");
 const app = express();
 const port = process.env.PORT || 3000;
 
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
+
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // middleware
@@ -32,11 +34,14 @@ async function run() {
     const db = client.db("Gear_Guard_db");
     const userCollection = db.collection("users");
     const assetCollection = db.collection("assets");
+    const paymentsCollection = db.collection("payments");
+    const packagesCollection = db.collection("packages");
     const requestsCollection = db.collection("requests");
     const assignedAssetsCollection = db.collection("assignedAssets");
     const employeeAffiliationsCollections = db.collection("affiliation");
 
     //     user related apis
+
     app.post("/users", async (req, res) => {
       const user = req.body;
 
@@ -433,6 +438,125 @@ async function run() {
       );
 
       res.send(finalTeamData);
+    });
+    // packages collection
+    app.post("/add-packages", async (req, res) => {
+      const defaultPackages = [
+        {
+          name: "Basic",
+          employeeLimit: 5,
+          price: 5,
+          features: ["Asset Tracking", "Employee Management", "Basic Support"],
+        },
+        {
+          name: "Standard",
+          employeeLimit: 10,
+          price: 12,
+          features: [
+            "All Basic features",
+            "Team Collaboration",
+            "Company Branding",
+          ],
+        },
+        {
+          name: "Premium",
+          employeeLimit: 20,
+          price: 20,
+          features: [
+            "All Standard features",
+            "Advanced Reporting",
+            "Priority Support",
+          ],
+        },
+      ];
+
+      const result = await packagesCollection.insertMany(defaultPackages);
+      res.send(result);
+    });
+
+    app.get("/packages", async (req, res) => {
+      const result = await packagesCollection.find().toArray();
+      res.send(result);
+    });
+
+    // payment related apis
+    app.post("/create-checkout-session", async (req, res) => {
+      const { price, packageName, employeeLimit, email } = req.body;
+
+      const amount = Math.round(price * 100);
+
+      const session = await stripe.checkout.sessions.create(
+        {
+          payment_method_types: ["card"],
+          mode: "payment",
+
+          line_items: [
+            {
+              price_data: {
+                currency: "usd",
+                product_data: { name: packageName },
+                unit_amount: amount,
+              },
+              quantity: 1,
+            },
+          ],
+
+          customer_email: email,
+
+          metadata: {
+            packageName,
+            employeeLimit: employeeLimit.toString(),
+          },
+
+          success_url: `${process.env.SITE_DOMAIN}/payment/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.SITE_DOMAIN}/payment/payment-cancel`,
+        },
+        {
+          idempotencyKey: `${email}-${packageName}-${Date.now()}`,
+        }
+      );
+
+      if (!session.url) {
+        return res.status(500).send({ error: "Stripe did not return a URL" });
+      }
+
+      res.send({ url: session.url });
+    });
+
+    app.get("/verify-session", async (req, res) => {
+      const sessionId = req.query.session_id;
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.payment_status !== "paid") {
+        return res.send({ success: false });
+      }
+      // console.log(session);
+      // Save Payment
+      const paymentData = {
+        hrEmail: session.customer_email,
+        packageName: session.metadata.packageName,
+        employeeLimit: Number(session.metadata.employeeLimit),
+        amount: session.amount_total / 100,
+        transactionId: session.payment_intent,
+        paymentDate: new Date(),
+        status: "completed",
+      };
+
+      await paymentsCollection.insertOne(paymentData);
+
+      //  Update User Package Limit
+      await userCollection.updateOne(
+        { email: session.customer_email },
+        {
+          $set: {
+            subscription: session.metadata.packageName,
+            packageLimit: Number(session.metadata.employeeLimit),
+          },
+        }
+      );
+
+      res.send({ success: true });
     });
 
     // Send a ping to confirm a successful connection
