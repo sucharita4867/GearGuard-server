@@ -61,7 +61,6 @@ async function run() {
       //  EMPLOYEE
       if (user.role === "Employee") {
         user.status = "pending";
-        user.companyId = null;
         user.position = "not assigned";
       }
 
@@ -593,54 +592,20 @@ async function run() {
 
     // user update apis
 
-    // app.patch("/user/update/:email", async (req, res) => {
-    //   try {
-    //     const email = req.params.email;
-    //     const updateData = req.body;
 
-    //     // Remove empty or null fields
-    //     for (const key in updateData) {
-    //       if (
-    //         updateData[key] === "" ||
-    //         updateData[key] === null ||
-    //         updateData[key] === undefined
-    //       ) {
-    //         delete updateData[key];
-    //       }
-    //     }
+    app.patch("/user/update/:email", async (req, res) => {
+      const email = req.params.email;
+      const updateData = req.body;
 
-    //     // ❌ Email is read-only — never allow updating
-    //     if ("email" in updateData) {
-    //       delete updateData.email;
-    //     }
+      const result = await userCollection.updateMany(
+        { email },
+        { $set: updateData }
+      );
+      // console.log(updateData, "updateData");
+      // console.log(result, "result");
 
-    //     // Update the user
-    //     const result = await userCollection.updateOne(
-    //       { email: email },
-    //       { $set: updateData }
-    //     );
-
-    //     // If no user found
-    //     if (result.matchedCount === 0) {
-    //       return res.send({
-    //         success: false,
-    //         message: "User not found",
-    //       });
-    //     }
-
-    //     res.send({
-    //       success: true,
-    //       message: "Profile updated successfully",
-    //       result,
-    //     });
-    //   } catch (error) {
-    //     console.error("Profile update error:", error);
-    //     res.status(500).send({
-    //       success: false,
-    //       message: "Failed to update profile",
-    //     });
-    //   }
-    // });
+      res.send({ success: true, updated: result });
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
