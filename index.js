@@ -11,36 +11,9 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 // firebase admin
 
-const admin = require("firebase-admin");
-
-const serviceAccount = require("./gearguard-b3f63-firebase-adminsdk-fb.json");
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
-
 // middleware
 app.use(express.json());
 app.use(cors());
-
-// const verifyFBToken = async (req, res, next) => {
-//   const token = req.headers?.authorization;
-
-//   if (!token) {
-//     return res.status(401).send({ message: "unauthorized access" });
-//   }
-
-//   try {
-//     const idToken = token.split(" ")[1];
-//     const decoded = await admin.auth().verifyIdToken(idToken);
-//     // console.log(decoded);
-//     req.decoded = decoded.email;
-//     next();
-//   } catch (err) {
-//     console.log("TOKEN ERROR:", err);
-//     return res.status(401).send({ message: "unauthorized access" });
-//   }
-// };
 
 // mongodb ui
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.phhktud.mongodb.net/?appName=Cluster0`;
@@ -104,7 +77,7 @@ async function run() {
     const verifyHR = async (req, res, next) => {
       const email = req.token_email;
       const user = await userCollection.findOne({ email });
-      if (!user || user.role !== "Hr") {
+      if (user.role?.toLowerCase() !== "hr") {
         return res.status(403).send({ message: "HR only access" });
       }
       next();
@@ -120,12 +93,19 @@ async function run() {
     };
 
     // JWT related apis
-    app.post("/getToken", (req, res) => {
-      const loggedUser = req.body;
-      const token = jwt.sign(loggedUser, process.env.JWT_SECRET, {
+    app.post("/getToken", async (req, res) => {
+      const { email } = req.body;
+
+      const user = await userCollection.findOne({ email });
+      if (!user) {
+        return res.status(401).send({ message: "unauthorized" });
+      }
+
+      const token = jwt.sign({ email }, process.env.JWT_SECRET, {
         expiresIn: "1h",
       });
-      res.send({ token: token });
+
+      res.send({ token });
     });
 
     //     user related api
@@ -186,27 +166,15 @@ async function run() {
       res.send({ success: true, insertedId: result.insertedId });
     });
 
-    app.get("/asset", verifyJWTToken, verifyHR, async (req, res) => {
-      // console.log(" HEADERS:", req.headers);
-      // console.log("AUTH HEADER:", req.headers.authorization);
-
-      const hrEmail = req.token_email;
+    app.get("/asset", verifyJWTToken, verifyEmployee, async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
-
       const skip = (page - 1) * limit;
 
-      // console.log("headers", req.headers);
-
-      let query = {};
-      if (hrEmail) {
-        query = { hrEmail };
-      }
-
-      const total = await assetCollection.countDocuments(query);
+      const total = await assetCollection.countDocuments();
 
       const assets = await assetCollection
-        .find(query)
+        .find({})
         .skip(skip)
         .limit(limit)
         .sort({ dateAdded: -1 })
@@ -275,6 +243,7 @@ async function run() {
         .find({ hrEmail })
         .sort({ requestDate: -1 })
         .toArray();
+      // console.log(result)
       res.send(result);
     });
 
@@ -348,7 +317,7 @@ async function run() {
             affiliationDate: new Date(),
             status: "active",
           });
-          console.log(alreadyAffiliated);
+          // console.log(alreadyAffiliated);
         }
         res.send({
           modifiedCount: updated.modifiedCount,
@@ -446,7 +415,6 @@ async function run() {
 
     app.get("/employees", verifyJWTToken, verifyHR, async (req, res) => {
       const hrEmail = req.token_email;
-
       const employees = await employeeAffiliationsCollections
         .find({ hrEmail, status: "active" })
         .sort({ affiliationDate: -1 })
@@ -457,7 +425,7 @@ async function run() {
           const user = await userCollection.findOne({
             email: emp.employeeEmail,
           });
-          // console.log(user);
+          // console.log(emp);
 
           const assetsCount = await assignedAssetsCollection.countDocuments({
             employeeEmail: emp.employeeEmail,
@@ -467,7 +435,7 @@ async function run() {
             _id: emp._id,
             name: emp.employeeName || user?.displayName,
             email: emp.employeeEmail,
-            photo: user?.image || "https://i.ibb.co/5xVqcD1/user.png",
+            photo: user?.image || null,
             joinDate: emp.affiliationDate,
             assetsCount,
             companyName: emp.companyName,
@@ -611,7 +579,7 @@ async function run() {
               _id: emp._id,
               name: userData?.name || emp.employeeName,
               email: emp.employeeEmail,
-              photo: userData?.image || "https://i.ibb.co/5xVqcD1/user.png",
+              photo: userData?.image || null,
               position: userData?.position || "Employee",
               dob: userData?.dob || null,
               joinDate: emp.affiliationDate,
@@ -619,7 +587,7 @@ async function run() {
             };
           })
         );
-
+        // console.log(finalTeamData);
         res.send(finalTeamData);
       }
     );
@@ -759,17 +727,62 @@ async function run() {
       verifyJWTToken,
       verifyOwner,
       async (req, res) => {
-        const email = req.params.email;
         const updateData = req.body;
 
-        const result = await userCollection.updateMany(
-          { email },
+        await userCollection.updateOne(
+          { email: req.params.email },
           { $set: updateData }
         );
-        // console.log(updateData, "updateData");
-        // console.log(result, "result");
 
-        res.send({ success: true, updated: result });
+        res.send({ success: true });
+      }
+    );
+
+    // rechart
+    app.get(
+      "/analytics/asset-types",
+      verifyJWTToken,
+      verifyHR,
+      async (req, res) => {
+        const assets = await assetCollection.find().toArray();
+
+        let returnable = 0;
+        let nonReturnable = 0;
+
+        assets.forEach((asset) => {
+          if (asset.productType === "Returnable") {
+            returnable++;
+          } else {
+            nonReturnable++;
+          }
+        });
+
+        res.send([
+          { name: "Returnable", value: returnable },
+          { name: "Non-returnable", value: nonReturnable },
+        ]);
+      }
+    );
+
+    app.get(
+      "/analytics/top-requested",
+      verifyJWTToken,
+      verifyHR,
+      async (req, res) => {
+        const requests = await requestsCollection.find().toArray();
+
+        const countMap = {};
+
+        requests.forEach((req) => {
+          countMap[req.assetName] = (countMap[req.assetName] || 0) + 1;
+        });
+
+        const result = Object.entries(countMap)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5);
+
+        res.send(result);
       }
     );
 
