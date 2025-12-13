@@ -5,6 +5,12 @@ const app = express();
 const port = process.env.PORT || 3000;
 const jwt = require("jsonwebtoken");
 
+const multer = require("multer");
+const axios = require("axios");
+const FormData = require("form-data");
+
+const upload = multer({ storage: multer.memoryStorage() });
+
 const stripe = require("stripe")(process.env.STRIPE_SECRET);
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
@@ -149,32 +155,60 @@ async function run() {
     });
 
     // assets related apis
-    app.post("/asset", verifyJWTToken, verifyHR, async (req, res) => {
-      const asset = req.body;
+    app.post(
+      "/asset",
+      verifyJWTToken,
+      verifyHR,
+      upload.single("image"),
+      async (req, res) => {
+        try {
+          if (!req.file) {
+            return res.status(400).send({ message: "Image file is required" });
+          }
 
-      const assetAutoData = {
-        productName: asset.productName,
-        productImage: asset.productImage,
-        productType: asset.productType,
-        productQuantity: Number(asset.productQuantity),
-        availableQuantity: Number(asset.productQuantity),
-        hrEmail: req.token_email,
-        companyName: asset.companyName || "Unknown",
-        dateAdded: new Date(),
-      };
-      const result = await assetCollection.insertOne(assetAutoData);
-      res.send({ success: true, insertedId: result.insertedId });
-    });
+          const formData = new FormData();
+          formData.append("image", req.file.buffer.toString("base64"));
 
-    app.get("/asset", verifyJWTToken, verifyEmployee, async (req, res) => {
+          const imgRes = await axios.post(
+            `https://api.imgbb.com/1/upload?key=${process.env.IMGBB_KEY}`,
+            formData,
+            { headers: formData.getHeaders() }
+          );
+
+          const imageURL = imgRes.data.data.url;
+
+          const assetAutoData = {
+            productName: req.body.productName,
+            productImage: imageURL,
+            productType: req.body.productType,
+            productQuantity: Number(req.body.productQuantity),
+            availableQuantity: Number(req.body.productQuantity),
+            hrEmail: req.token_email,
+            companyName: req.body.companyName || "Unknown",
+            dateAdded: new Date(),
+          };
+
+          const result = await assetCollection.insertOne(assetAutoData);
+
+          res.send({ success: true, insertedId: result.insertedId });
+        } catch (err) {
+          console.error("Asset upload error:", err);
+          res.status(500).send({ message: "Image upload failed" });
+        }
+      }
+    );
+
+    app.get("/asset", verifyJWTToken, verifyHR, async (req, res) => {
+      const hrEmail = req.token_email;
+
       const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 10;
+      const limit = parseInt(req.query.limit) || 5;
       const skip = (page - 1) * limit;
 
-      const total = await assetCollection.countDocuments();
+      const total = await assetCollection.countDocuments({ hrEmail });
 
       const assets = await assetCollection
-        .find({})
+        .find({ hrEmail })
         .skip(skip)
         .limit(limit)
         .sort({ dateAdded: -1 })
@@ -373,6 +407,20 @@ async function run() {
           .toArray();
 
         res.send(result);
+      }
+    );
+
+    app.get(
+      "/assets/employee",
+      verifyJWTToken,
+      verifyEmployee,
+      async (req, res) => {
+        const assets = await assetCollection
+          .find({ availableQuantity: { $gt: 0 } })
+          .sort({ dateAdded: -1 })
+          .toArray();
+
+        res.send(assets);
       }
     );
 
