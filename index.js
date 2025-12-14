@@ -38,7 +38,7 @@ app.get("/", (req, res) => {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     // collections
     const db = client.db("Gear_Guard_db");
     const userCollection = db.collection("users");
@@ -847,7 +847,6 @@ async function run() {
   }
 }
 
-// app.listen(port, () => {
-//   console.log(`Example app listening on port ${port}`);
-// });
-module.exports = app;
+app.listen(port, () => {
+  console.log(`Example app listening on port ${port}`);
+});
