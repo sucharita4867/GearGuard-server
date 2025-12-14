@@ -92,7 +92,7 @@ async function run() {
     const verifyEmployee = async (req, res, next) => {
       const email = req.token_email;
       const user = await userCollection.findOne({ email });
-      if (!user || user.role !== "Employee") {
+      if (!user || user.role?.toLowerCase() !== "employee") {
         return res.status(403).send({ message: "Employee only access" });
       }
       next();
@@ -640,7 +640,7 @@ async function run() {
       }
     );
     // packages collection
-    app.post("/add-packages", async (req, res) => {
+    app.post("/add-packages", verifyJWTToken, verifyHR, async (req, res) => {
       const defaultPackages = [
         {
           name: "Basic",
@@ -676,11 +676,13 @@ async function run() {
 
     app.get("/packages", async (req, res) => {
       const result = await packagesCollection.find().toArray();
+      console.log(result);
       res.send(result);
     });
 
     // payment related apis
-    app.post("/create-checkout-session", async (req, res) => {
+    app.post("/create-checkout-session", verifyJWTToken,
+  verifyHR, async (req, res) => {
       const { price, packageName, employeeLimit, email } = req.body;
 
       const amount = Math.round(price * 100);
@@ -835,16 +837,17 @@ async function run() {
     );
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     //     await client.close();
   }
 }
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
-});
+// app.listen(port, () => {
+//   console.log(`Example app listening on port ${port}`);
+// });
+module.exports = app;
